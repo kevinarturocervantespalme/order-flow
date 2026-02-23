@@ -1,1 +1,136 @@
+// This Pine Script® code is subject to the terms of the Mozilla Public License 2.0 at https://mozilla.org/MPL/2.0/
+// © AT_Friend - Clean & Pro Filtered Version with Labels (fixed)
 
+//@version=6
+indicator("Contrainteligencia de Mercado v6 - Final Pro", overlay=false, max_labels_count=500, max_lines_count=500)
+
+// ==========================
+// Inputs de Filtrado
+// ==========================
+string ltfTf = input.timeframe("1", "LTF intrabarra")
+int pivotLen = input.int(10, "Sensibilidad de Liquidez", minval=5)
+float volFilterMult = input.float(2.0, "Filtro Vol. para Niveles", minval=1.0, tooltip="Solo dibuja si el volumen supera el promedio por este múltiplo. Sube el valor para ver menos zonas.")
+float imbalanceRatio = input.float(2.8, "Ratio imbalance (x:1)", minval=1.5)
+int maxLines = input.int(30, "Máximo de líneas en pantalla", minval=5)
+bool useVolFilter = input.bool(true, "Aplicar filtro de volumen")
+bool debugMarks = input.bool(false, "Mostrar marcas de depuración")
+
+// Colores
+color AMARILLO = #FFFF00
+color MORADO   = #8000FF
+color VERDE    = #00FF00
+color ROJO     = #FF0000
+color BLANCO   = #FFFFFF
+
+// ==========================
+// Order Flow & Delta
+// ==========================
+array<float> ltfOpen  = request.security_lower_tf(syminfo.tickerid, ltfTf, open)
+array<float> ltfClose = request.security_lower_tf(syminfo.tickerid, ltfTf, close)
+array<float> ltfVol   = request.security_lower_tf(syminfo.tickerid, ltfTf, volume)
+
+float buyFlow = 0.0, sellFlow = 0.0, maxLtfVol = 0.0, wallPrice = close
+
+if array.size(ltfVol) > 0
+    for i = 0 to array.size(ltfVol) - 1
+        float o = array.get(ltfOpen, i)
+        float c = array.get(ltfClose, i)
+        float v = array.get(ltfVol, i)
+        if c > o
+            buyFlow += v
+        else if c < o
+            sellFlow += v
+        else
+            buyFlow  += v * 0.5
+            sellFlow += v * 0.5
+
+        if v >= maxLtfVol
+            maxLtfVol := v
+            wallPrice := c
+else
+    buyFlow  := close >= open ? volume : volume * 0.5
+    sellFlow := close < open ? volume : volume * 0.5
+
+float deltaFlow = buyFlow - sellFlow
+float avgVol = ta.sma(volume, 50)
+
+// Filtro robusto (si el promedio aún no existe, no bloquea)
+bool volPassNow = na(avgVol) ? true : volume > (avgVol * volFilterMult)
+bool isSignificantNow = useVolFilter ? volPassNow : true
+
+// ==========================
+// Niveles Representativos (Líneas en Overlay)
+// ==========================
+var line[] liquidityLines = array.new_line()
+var line[] wallLines = array.new_line()
+
+float ph = ta.pivothigh(high, pivotLen, pivotLen)
+float pl = ta.pivotlow(low, pivotLen, pivotLen)
+
+// Para pivotes, evaluamos volumen en la barra del pivote, no en la barra actual
+float avgVolPivot = avgVol[pivotLen]
+bool volPassPivot = na(avgVolPivot) ? true : volume[pivotLen] > (avgVolPivot * volFilterMult)
+bool isSignificantPivot = useVolFilter ? volPassPivot : true
+
+if not na(ph) and isSignificantPivot
+    line l = line.new(
+         bar_index - pivotLen, ph,
+         bar_index, ph,
+         color=MORADO, width=2, extend=extend.right, force_overlay=true)
+    array.push(liquidityLines, l)
+    if array.size(liquidityLines) > maxLines
+        line.delete(array.shift(liquidityLines))
+
+if not na(pl) and isSignificantPivot
+    line l = line.new(
+         bar_index - pivotLen, pl,
+         bar_index, pl,
+         color=MORADO, width=2, extend=extend.right, force_overlay=true)
+    array.push(liquidityLines, l)
+    if array.size(liquidityLines) > maxLines
+        line.delete(array.shift(liquidityLines))
+
+bool wallImbalance = buyFlow > sellFlow * imbalanceRatio or sellFlow > buyFlow * imbalanceRatio
+bool wallCond = wallImbalance and isSignificantNow
+
+if wallCond
+    line l = line.new(
+         bar_index, wallPrice,
+         bar_index + 1, wallPrice,
+         color=AMARILLO, width=3, extend=extend.right, force_overlay=true)
+    array.push(wallLines, l)
+    if array.size(wallLines) > maxLines
+        line.delete(array.shift(wallLines))
+
+// Marcas opcionales para validar cuándo se activan las zonas
+plotshape(debugMarks and not na(ph) and isSignificantPivot, title="Pivot High OK", style=shape.circle, size=size.tiny, color=MORADO, location=location.top)
+plotshape(debugMarks and not na(pl) and isSignificantPivot, title="Pivot Low OK", style=shape.circle, size=size.tiny, color=MORADO, location=location.bottom)
+plotshape(debugMarks and wallCond, title="Wall OK", style=shape.triangleup, size=size.tiny, color=AMARILLO, location=location.top)
+
+// ==========================
+// Panel Inferior: Histogramas y Delta
+// ==========================
+plot(buyFlow, title="Buy Flow", color=VERDE, style=plot.style_histogram, linewidth=2)
+plot(-sellFlow, title="Sell Flow", color=ROJO, style=plot.style_histogram, linewidth=2)
+plot(deltaFlow, title="Delta Line", color=BLANCO, linewidth=2)
+plot(0, title="Zero Line", color=color.new(BLANCO, 50))
+
+// ==========================
+// ETIQUETAS DE DATOS (Up, Dn, Delta)
+// ==========================
+var label lblData = na
+if barstate.islast
+    string txt = "UP: " + str.tostring(buyFlow, format.volume) +
+                 "\nDN: " + str.tostring(sellFlow, format.volume) +
+                 "\nΔ: " + str.tostring(deltaFlow, format.volume)
+
+    if na(lblData)
+        lblData := label.new(
+             bar_index, 0, txt,
+             color=color.new(color.black, 100),
+             textcolor=BLANCO,
+             style=label.style_label_left,
+             size=size.small)
+    else
+        label.set_xy(lblData, bar_index, 0)
+        label.set_text(lblData, txt)
