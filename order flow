@@ -8,15 +8,16 @@ indicator("Contrainteligencia de Mercado v6 - Final Pro", overlay=false, max_lab
 // Inputs de Filtrado
 // ==========================
 string ltfTf = input.timeframe("1", "LTF intrabarra")
-int pivotLen = input.int(8, "Sensibilidad de Liquidez", minval=3)
-float volFilterMult = input.float(1.8, "Filtro Vol. para Niveles", minval=1.0, tooltip="Solo dibuja si el volumen supera el promedio por este múltiplo. Sube el valor para ver menos zonas.")
-float imbalanceRatio = input.float(2.2, "Ratio imbalance (x:1)", minval=1.2)
+int pivotLen = input.int(5, "Sensibilidad de Liquidez", minval=3)
+float volFilterMult = input.float(1.5, "Filtro Vol. para Niveles", minval=1.0, tooltip="Solo dibuja si el volumen supera el promedio por este múltiplo. Sube el valor para ver menos zonas.")
+float imbalanceRatio = input.float(1.6, "Ratio imbalance (x:1)", minval=1.1)
 int maxLines = input.int(20, "Máximo de líneas en pantalla", minval=5)
-bool useVolFilter = input.bool(true, "Aplicar filtro de volumen")
+bool useVolFilterLiquidity = input.bool(false, "Filtro volumen para líneas moradas")
+bool useVolFilterWalls = input.bool(false, "Filtro volumen para líneas amarillas")
 bool showLiquidity = input.bool(true, "Mostrar zonas moradas")
 bool showWalls = input.bool(true, "Mostrar zonas amarillas")
-int cooldownBars = input.int(8, "Separación mínima entre nuevas líneas (barras)", minval=1)
-float minGapAtr = input.float(0.25, "Separación mínima por precio (x ATR)", minval=0.01, maxval=2.0, step=0.01)
+int cooldownBars = input.int(12, "Separación mínima entre nuevas líneas (barras)", minval=1)
+float minGapAtr = input.float(0.35, "Separación mínima por precio (x ATR)", minval=0.01, maxval=2.0, step=0.01)
 bool debugMarks = input.bool(false, "Mostrar marcas de depuración")
 
 // Colores
@@ -60,7 +61,7 @@ float avgVol = ta.sma(volume, 50)
 
 // Filtro robusto (si el promedio aún no existe, no bloquea)
 bool volPassNow = na(avgVol) ? true : volume > (avgVol * volFilterMult)
-bool isSignificantNow = useVolFilter ? volPassNow : true
+bool isSignificantNow = useVolFilterWalls ? volPassNow : true
 
 // ==========================
 // Niveles Representativos (Líneas en Overlay)
@@ -78,7 +79,7 @@ float minGap = atr * minGapAtr
 // Para pivotes, evaluamos volumen en la barra del pivote, no en la barra actual
 float avgVolPivot = avgVol[pivotLen]
 bool volPassPivot = na(avgVolPivot) ? true : volume[pivotLen] > (avgVolPivot * volFilterMult)
-bool isSignificantPivot = useVolFilter ? volPassPivot : true
+bool isSignificantPivot = useVolFilterLiquidity ? volPassPivot : true
 
 canAddAtPrice(line[] linesArr, float price, float gap) =>
     bool allow = true
