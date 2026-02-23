@@ -2,17 +2,22 @@
 // © AT_Friend - Clean & Pro Filtered Version with Labels (fixed)
 
 //@version=6
-indicator("Contrainteligencia de Mercado v6 - Final Pro", overlay=false, max_labels_count=500, max_lines_count=500)
+indicator("Contrainteligencia de Mercado v6 - Final Pro", overlay=true, max_labels_count=500, max_lines_count=500)
 
 // ==========================
 // Inputs de Filtrado
 // ==========================
 string ltfTf = input.timeframe("1", "LTF intrabarra")
-int pivotLen = input.int(10, "Sensibilidad de Liquidez", minval=5)
-float volFilterMult = input.float(2.0, "Filtro Vol. para Niveles", minval=1.0, tooltip="Solo dibuja si el volumen supera el promedio por este múltiplo. Sube el valor para ver menos zonas.")
-float imbalanceRatio = input.float(2.8, "Ratio imbalance (x:1)", minval=1.5)
-int maxLines = input.int(30, "Máximo de líneas en pantalla", minval=5)
-bool useVolFilter = input.bool(true, "Aplicar filtro de volumen")
+int pivotLen = input.int(6, "Sensibilidad de Liquidez", minval=3)
+float volFilterMult = input.float(1.5, "Filtro Vol. para Niveles", minval=1.0, tooltip="Solo dibuja si el volumen supera el promedio por este múltiplo. Sube el valor para ver menos zonas.")
+float imbalanceRatio = input.float(1.8, "Ratio imbalance (x:1)", minval=1.2)
+int maxLines = input.int(60, "Máximo de líneas en pantalla", minval=10)
+bool useVolFilter = input.bool(false, "Aplicar filtro de volumen")
+bool showLiquidity = input.bool(true, "Mostrar zonas moradas")
+bool showWalls = input.bool(true, "Mostrar zonas amarillas")
+int zoneBars = input.int(30, "Ancho de zona (barras)", minval=3, maxval=300)
+float zoneAtrFrac = input.float(0.08, "Alto de zona (fracción ATR)", minval=0.01, maxval=0.50, step=0.01)
+bool showPanel = input.bool(false, "Mostrar panel de flujo (si lo activas, puede comprimir el precio)")
 bool debugMarks = input.bool(false, "Mostrar marcas de depuración")
 
 // Colores
@@ -63,44 +68,60 @@ bool isSignificantNow = useVolFilter ? volPassNow : true
 // ==========================
 var line[] liquidityLines = array.new_line()
 var line[] wallLines = array.new_line()
+var box[] liquidityBoxes = array.new_box()
+var box[] wallBoxes = array.new_box()
 
 float ph = ta.pivothigh(high, pivotLen, pivotLen)
 float pl = ta.pivotlow(low, pivotLen, pivotLen)
+float atr = ta.atr(14)
+float zoneHalf = atr * zoneAtrFrac
 
 // Para pivotes, evaluamos volumen en la barra del pivote, no en la barra actual
 float avgVolPivot = avgVol[pivotLen]
 bool volPassPivot = na(avgVolPivot) ? true : volume[pivotLen] > (avgVolPivot * volFilterMult)
 bool isSignificantPivot = useVolFilter ? volPassPivot : true
 
-if not na(ph) and isSignificantPivot
+if showLiquidity and not na(ph) and isSignificantPivot
     line l = line.new(
          bar_index - pivotLen, ph,
          bar_index, ph,
-         color=MORADO, width=2, extend=extend.right, force_overlay=true)
+         color=MORADO, width=3, extend=extend.right)
     array.push(liquidityLines, l)
     if array.size(liquidityLines) > maxLines
         line.delete(array.shift(liquidityLines))
+    box b = box.new(bar_index - pivotLen, ph + zoneHalf, bar_index - pivotLen + zoneBars, ph - zoneHalf, border_color=MORADO, bgcolor=color.new(MORADO, 88))
+    array.push(liquidityBoxes, b)
+    if array.size(liquidityBoxes) > maxLines
+        box.delete(array.shift(liquidityBoxes))
 
-if not na(pl) and isSignificantPivot
+if showLiquidity and not na(pl) and isSignificantPivot
     line l = line.new(
          bar_index - pivotLen, pl,
          bar_index, pl,
-         color=MORADO, width=2, extend=extend.right, force_overlay=true)
+         color=MORADO, width=3, extend=extend.right)
     array.push(liquidityLines, l)
     if array.size(liquidityLines) > maxLines
         line.delete(array.shift(liquidityLines))
+    box b = box.new(bar_index - pivotLen, pl + zoneHalf, bar_index - pivotLen + zoneBars, pl - zoneHalf, border_color=MORADO, bgcolor=color.new(MORADO, 88))
+    array.push(liquidityBoxes, b)
+    if array.size(liquidityBoxes) > maxLines
+        box.delete(array.shift(liquidityBoxes))
 
 bool wallImbalance = buyFlow > sellFlow * imbalanceRatio or sellFlow > buyFlow * imbalanceRatio
 bool wallCond = wallImbalance and isSignificantNow
 
-if wallCond
+if showWalls and wallCond
     line l = line.new(
          bar_index, wallPrice,
          bar_index + 1, wallPrice,
-         color=AMARILLO, width=3, extend=extend.right, force_overlay=true)
+         color=AMARILLO, width=4, extend=extend.right)
     array.push(wallLines, l)
     if array.size(wallLines) > maxLines
         line.delete(array.shift(wallLines))
+    box b = box.new(bar_index, wallPrice + zoneHalf, bar_index + zoneBars, wallPrice - zoneHalf, border_color=AMARILLO, bgcolor=color.new(AMARILLO, 85))
+    array.push(wallBoxes, b)
+    if array.size(wallBoxes) > maxLines
+        box.delete(array.shift(wallBoxes))
 
 // Marcas opcionales para validar cuándo se activan las zonas
 plotshape(debugMarks and not na(ph) and isSignificantPivot, title="Pivot High OK", style=shape.circle, size=size.tiny, color=MORADO, location=location.top)
@@ -110,10 +131,10 @@ plotshape(debugMarks and wallCond, title="Wall OK", style=shape.triangleup, size
 // ==========================
 // Panel Inferior: Histogramas y Delta
 // ==========================
-plot(buyFlow, title="Buy Flow", color=VERDE, style=plot.style_histogram, linewidth=2)
-plot(-sellFlow, title="Sell Flow", color=ROJO, style=plot.style_histogram, linewidth=2)
-plot(deltaFlow, title="Delta Line", color=BLANCO, linewidth=2)
-plot(0, title="Zero Line", color=color.new(BLANCO, 50))
+plot(showPanel ? buyFlow : na, title="Buy Flow", color=VERDE, style=plot.style_histogram, linewidth=2)
+plot(showPanel ? -sellFlow : na, title="Sell Flow", color=ROJO, style=plot.style_histogram, linewidth=2)
+plot(showPanel ? deltaFlow : na, title="Delta Line", color=BLANCO, linewidth=2)
+plot(showPanel ? 0 : na, title="Zero Line", color=color.new(BLANCO, 50))
 
 // ==========================
 // ETIQUETAS DE DATOS (Up, Dn, Delta)
